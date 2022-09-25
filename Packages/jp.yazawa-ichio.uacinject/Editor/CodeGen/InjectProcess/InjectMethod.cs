@@ -26,6 +26,11 @@ namespace UACInject.CodeGen
 				m_Error = true;
 				logger.Error($"MethodAttribute target static only. {method.FullName}");
 			}
+			// エラーにするべきか？
+			if (!method.IsPublic)
+			{
+				method.IsPublic = true;
+			}
 			switch (m_CodeType)
 			{
 				case CodeType.Execute:
@@ -193,8 +198,9 @@ namespace UACInject.CodeGen
 
 			var processor = callerMethod.Body.GetILProcessor();
 
-			var end = processor.Body.Instructions.Last(x => x.OpCode == OpCodes.Ret);
-			if (!callerMethod.ReturnType.IsVoid())
+			var end = processor.Body.Instructions.Last(x => x.OpCode == OpCodes.Ret || x.OpCode == OpCodes.Throw);
+			bool notRetEnd = end.OpCode != OpCodes.Ret;
+			if (!callerMethod.ReturnType.IsVoid() && !notRetEnd)
 			{
 				end = end.Previous;
 			}
@@ -238,12 +244,16 @@ namespace UACInject.CodeGen
 					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_3));
 					break;
 				default:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_S, variable.Index));
+					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_S, variable));
 					break;
 			}
 
 			Instruction leavePoint;
-			if (end.Previous == null || end.Previous.OpCode != OpCodes.Leave_S)
+			if (notRetEnd)
+			{
+				leavePoint = end;
+			}
+			else if (end.Previous == null || end.Previous.OpCode != OpCodes.Leave_S)
 			{
 				processor.InsertBefore(end, leavePoint = Instruction.Create(OpCodes.Nop));
 				processor.InsertBefore(end, Instruction.Create(OpCodes.Leave_S, end));
@@ -276,21 +286,53 @@ namespace UACInject.CodeGen
 				}
 			}
 
+			void InsertEndfinally(Instruction instruction)
+			{
+				if (!notRetEnd)
+				{
+					processor.InsertBefore(end, instruction);
+				}
+				else
+				{
+					processor.Append(instruction);
+				}
+			}
+
 			if (variable.Index < 255)
 			{
-				processor.InsertBefore(end, Instruction.Create(OpCodes.Ldloca_S, variable));
+				InsertEndfinally(Instruction.Create(OpCodes.Ldloca_S, variable));
 			}
 			else
 			{
-				processor.InsertBefore(end, Instruction.Create(OpCodes.Ldloca, variable));
+				InsertEndfinally(Instruction.Create(OpCodes.Ldloca, variable));
 			}
 
-			handlerStart = end.Previous;
-			processor.InsertBefore(end, Instruction.Create(OpCodes.Constrained, m_Method.ReturnType));
+			if (!notRetEnd)
+			{
+				handlerStart = end.Previous;
+			}
+			else
+			{
+				handlerStart = processor.Body.Instructions.Last();
+				foreach (var exceptionHandlers in processor.Body.ExceptionHandlers)
+				{
+					if (exceptionHandlers.HandlerEnd == null)
+					{
+						exceptionHandlers.HandlerEnd = handlerStart;
+					}
+				}
+			}
+
+			InsertEndfinally(Instruction.Create(OpCodes.Constrained, m_Method.ReturnType));
 			var disposeMethod = callerType.Module.ImportReference(typeof(System.IDisposable).GetMethod("Dispose"));
-			processor.InsertBefore(end, Instruction.Create(OpCodes.Callvirt, disposeMethod));
-			processor.InsertBefore(end, Instruction.Create(OpCodes.Nop));
-			processor.InsertBefore(end, Instruction.Create(OpCodes.Endfinally));
+			InsertEndfinally(Instruction.Create(OpCodes.Callvirt, disposeMethod));
+			InsertEndfinally(Instruction.Create(OpCodes.Nop));
+			InsertEndfinally(Instruction.Create(OpCodes.Endfinally));
+
+			if (notRetEnd)
+			{
+				end = processor.Body.Instructions.Last().Next;
+			}
 
 			processor.Body.ExceptionHandlers.Insert(0, new ExceptionHandler(ExceptionHandlerType.Finally)
 			{

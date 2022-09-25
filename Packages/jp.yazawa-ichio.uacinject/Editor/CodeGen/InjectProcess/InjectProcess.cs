@@ -20,13 +20,22 @@ namespace UACInject.CodeGen
 		{
 			foreach (var typeDefinition in mainModule.Types)
 			{
-				foreach (var method in typeDefinition.Methods)
+				Run(typeDefinition);
+			}
+		}
+
+		void Run(TypeDefinition typeDefinition)
+		{
+			foreach (var method in typeDefinition.Methods)
+			{
+				if (method.CustomAttributes.Any(x => CodeInjectAttributeInfo.Is(x)))
 				{
-					if (method.CustomAttributes.Any(x => CodeInjectAttributeInfo.Is(x)))
-					{
-						Process(typeDefinition, method);
-					}
+					Process(typeDefinition, method);
 				}
+			}
+			foreach (var nest in typeDefinition.NestedTypes)
+			{
+				Run(nest);
 			}
 		}
 
