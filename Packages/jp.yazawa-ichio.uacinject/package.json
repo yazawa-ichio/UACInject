@@ -1,0 +1,11 @@
+{
+  "name": "jp.yazawa-ichio.uacinject",
+  "displayName": "UACInject",
+  "version": "0.0.1",
+  "unity": "2020.3",
+  "description": "Unity Attribute Code Inject Package",
+  "license": "NYSL",
+  "dependencies": {
+    "com.unity.nuget.mono-cecil": "1.10.1"
+  }
+}
