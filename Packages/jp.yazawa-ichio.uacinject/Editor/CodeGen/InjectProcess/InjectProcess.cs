@@ -26,6 +26,7 @@ namespace UACInject.CodeGen
 
 		void Run(TypeDefinition typeDefinition)
 		{
+			PublicCodeTarget(typeDefinition);
 			foreach (var method in typeDefinition.Methods)
 			{
 				if (method.CustomAttributes.Any(x => CodeInjectAttributeInfo.Is(x)))
@@ -38,6 +39,7 @@ namespace UACInject.CodeGen
 				Run(nest);
 			}
 		}
+
 
 		void Process(TypeDefinition typeDefinition, MethodDefinition method)
 		{
@@ -57,6 +59,18 @@ namespace UACInject.CodeGen
 				}
 			}
 		}
+
+		void PublicCodeTarget(TypeDefinition typeDefinition)
+		{
+			foreach (var method in typeDefinition.Methods)
+			{
+				if (method.CustomAttributes.Any(x => CodeTargetAttributeInfo.Is(x)))
+				{
+					method.IsPublic = true;
+				}
+			}
+		}
+
 
 	}
 }

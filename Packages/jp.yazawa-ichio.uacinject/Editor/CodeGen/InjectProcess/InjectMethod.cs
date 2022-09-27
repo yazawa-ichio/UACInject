@@ -1,5 +1,7 @@
 ﻿using Mono.Cecil;
 using Mono.Cecil.Cil;
+using Mono.Cecil.Rocks;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace UACInject.CodeGen
@@ -101,7 +103,7 @@ namespace UACInject.CodeGen
 
 			if (m_CodeType == CodeType.ReturnCondition)
 			{
-				if (!callerMethod.ReturnType.IsVoid())
+				if (!callerMethod.ReturnType.IsVoid() && !callerMethod.ReturnType.CanToCast("System.Threading.Tasks.Task"))
 				{
 					m_Logger.Warning($"ReturnCondition is void only. {callerMethod.FullName}");
 					return false;
@@ -116,8 +118,6 @@ namespace UACInject.CodeGen
 			Instruction target = callerMethod.Body.Instructions.First();
 			var processor = callerMethod.Body.GetILProcessor();
 
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Nop));
-
 			foreach (var arg in m_ArgumentInfos)
 			{
 				foreach (var item in arg.CreateInstruction(callerType, callerMethod))
@@ -126,7 +126,7 @@ namespace UACInject.CodeGen
 				}
 			}
 
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Call, m_Method));
+			processor.InsertBefore(target, Instruction.Create(OpCodes.Call, callerMethod.Module.ImportReference(m_Method)));
 
 			if (m_Method.ReturnType != null && m_Method.ReturnType.FullName != "System.Void")
 			{
@@ -137,10 +137,10 @@ namespace UACInject.CodeGen
 
 		void InjectReturnCondition(TypeDefinition callerType, MethodDefinition callerMethod)
 		{
-			Instruction target = callerMethod.Body.Instructions.First();
 			var processor = callerMethod.Body.GetILProcessor();
+			processor.Body.SimplifyMacros();
 
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Nop));
+			Instruction target = callerMethod.Body.Instructions.First();
 
 			foreach (var arg in m_ArgumentInfos)
 			{
@@ -150,71 +150,41 @@ namespace UACInject.CodeGen
 				}
 			}
 
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Call, m_Method));
+			processor.InsertBefore(target, Instruction.Create(OpCodes.Call, callerMethod.Module.ImportReference(m_Method)));
+			var ret = Instruction.Create(OpCodes.Ret);
+			processor.InsertBefore(target, ret);
+			processor.InsertBefore(ret, Instruction.Create(OpCodes.Brfalse_S, target));
 
-			var variable = new VariableDefinition(m_Method.ReturnType);
-			callerMethod.Body.Variables.Add(variable);
-
-			switch (variable.Index)
+			if (ret.Next != null && processor.Body.ExceptionHandlers.Count > 0)
 			{
-				case 0:
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Stloc_0));
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Ldloc_0));
-					break;
-				case 1:
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Stloc_1));
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Ldloc_1));
-					break;
-				case 2:
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Stloc_2));
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Ldloc_2));
-					break;
-				case 3:
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Stloc_3));
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Ldloc_3));
-					break;
-				default:
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Stloc_S, variable.Index));
-					processor.InsertBefore(target, Instruction.Create(OpCodes.Ldloc_S, variable.Index));
-					break;
+				if (processor.Body.ExceptionHandlers[0].TryStart == ret.Next)
+				{
+					processor.InsertAfter(ret, Instruction.Create(OpCodes.Nop));
+				}
 			}
 
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Brfalse_S, target));
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Nop));
-
-			var end = processor.Body.Instructions.Last(x => x.OpCode == OpCodes.Ret);
 			if (!callerMethod.ReturnType.IsVoid())
 			{
-				end = end.Previous;
+				var type = callerMethod.Module.ImportReference(callerMethod.ReturnType.Resolve()).Resolve();
+				var method = callerMethod.Module.ImportReference(type.Methods.FirstOrDefault(x => x.Name == "get_CompletedTask"));
+				processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, method));
 			}
-			processor.InsertBefore(target, Instruction.Create(OpCodes.Br_S, end));
+
+			processor.Body.OptimizeMacros();
 
 		}
 
 		void InjectScope(TypeDefinition callerType, MethodDefinition callerMethod)
 		{
-			Instruction tryStart;
-			Instruction handlerStart;
 
 			var processor = callerMethod.Body.GetILProcessor();
 
-			var end = processor.Body.Instructions.Last(x => x.OpCode == OpCodes.Ret || x.OpCode == OpCodes.Throw);
-			bool notRetEnd = end.OpCode != OpCodes.Ret;
-			if (!callerMethod.ReturnType.IsVoid() && !notRetEnd)
-			{
-				end = end.Previous;
-			}
-			tryStart = callerMethod.Body.Instructions.First();
+			processor.Body.SimplifyMacros();
 
-			foreach (var instruction in processor.Body.Instructions.ToArray())
-			{
-				if (instruction.OpCode == OpCodes.Br_S && instruction.Operand == end)
-				{
-					processor.Replace(instruction, Instruction.Create(OpCodes.Leave_S, end));
-				}
-			}
-
-			processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Nop));
+			var end = processor.Body.Instructions.Last();
+			var ret = processor.Body.Instructions.LastOrDefault(x => x.OpCode == OpCodes.Ret);
+			var holdLastRet = end == ret && processor.Body.Instructions.Count != 1 && processor.Body.ExceptionHandlers.Count > 0;
+			Instruction tryStart = callerMethod.Body.Instructions.First();
 
 			foreach (var arg in m_ArgumentInfos)
 			{
@@ -224,71 +194,27 @@ namespace UACInject.CodeGen
 				}
 			}
 
-			processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Call, m_Method));
-
-			var variable = new VariableDefinition(m_Method.ReturnType);
+			processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Call, callerType.Module.ImportReference(m_Method)));
+			var variable = new VariableDefinition(callerType.Module.ImportReference(m_Method.ReturnType));
 			callerMethod.Body.Variables.Add(variable);
+			processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc, variable));
 
-			switch (variable.Index)
+			var tryStartPrev = tryStart.Previous;
+
+			VariableDefinition retVariable = null;
+
+			if (ret != null && !callerMethod.ReturnType.IsVoid())
 			{
-				case 0:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_0));
-					break;
-				case 1:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_1));
-					break;
-				case 2:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_2));
-					break;
-				case 3:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_3));
-					break;
-				default:
-					processor.InsertBefore(tryStart, Instruction.Create(OpCodes.Stloc_S, variable));
-					break;
+				end = end.Previous;
+				retVariable = new VariableDefinition(callerType.Module.ImportReference(callerMethod.ReturnType));
+				callerMethod.Body.Variables.Add(retVariable);
 			}
 
-			Instruction leavePoint;
-			if (notRetEnd)
-			{
-				leavePoint = end;
-			}
-			else if (end.Previous == null || end.Previous.OpCode != OpCodes.Leave_S)
-			{
-				processor.InsertBefore(end, leavePoint = Instruction.Create(OpCodes.Nop));
-				processor.InsertBefore(end, Instruction.Create(OpCodes.Leave_S, end));
-			}
-			else
-			{
-				leavePoint = end.Previous;
-			}
+			var finallyInstructions = GetScopeFinallyInstruction(callerType, variable, !holdLastRet && ret != null, retVariable);
 
-			foreach (var exceptionHandlers in processor.Body.ExceptionHandlers)
+			foreach (var instruction in finallyInstructions)
 			{
-				var tmp = exceptionHandlers.TryStart;
-				while (tmp != null && tmp != exceptionHandlers.TryEnd)
-				{
-					if (tmp.OpCode == OpCodes.Leave_S && tmp.Operand == end)
-					{
-						var instruction = Instruction.Create(OpCodes.Leave_S, leavePoint);
-						processor.Replace(tmp, instruction);
-					}
-					tmp = tmp.Next;
-				}
-				if (exceptionHandlers.HandlerEnd == end)
-				{
-					var tmpEnd = exceptionHandlers.HandlerEnd;
-					while (tmpEnd.OpCode != OpCodes.Endfinally)
-					{
-						tmpEnd = tmpEnd.Previous;
-					}
-					exceptionHandlers.HandlerEnd = tmpEnd.Next;
-				}
-			}
-
-			void InsertEndfinally(Instruction instruction)
-			{
-				if (!notRetEnd)
+				if (holdLastRet)
 				{
 					processor.InsertBefore(end, instruction);
 				}
@@ -298,54 +224,80 @@ namespace UACInject.CodeGen
 				}
 			}
 
-			if (variable.Index < 255)
+			if (!holdLastRet && ret != null)
 			{
-				InsertEndfinally(Instruction.Create(OpCodes.Ldloca_S, variable));
-			}
-			else
-			{
-				InsertEndfinally(Instruction.Create(OpCodes.Ldloca, variable));
-			}
-
-			if (!notRetEnd)
-			{
-				handlerStart = end.Previous;
-			}
-			else
-			{
-				handlerStart = processor.Body.Instructions.Last();
-				foreach (var exceptionHandlers in processor.Body.ExceptionHandlers)
+				foreach (var replaceRet in processor.Body.Instructions.Where(x => x.OpCode == OpCodes.Ret).ToArray())
 				{
-					if (exceptionHandlers.HandlerEnd == null)
+					if (finallyInstructions.Contains(replaceRet))
 					{
-						exceptionHandlers.HandlerEnd = handlerStart;
+						continue;
+					}
+
+					var last = finallyInstructions.Last();
+					if (retVariable != null)
+					{
+						last = last.Previous;
+						var leave = Instruction.Create(OpCodes.Leave, last);
+						processor.Replace(replaceRet, leave);
+						processor.InsertBefore(leave, Instruction.Create(OpCodes.Stloc, retVariable));
+					}
+					else
+					{
+						processor.Replace(replaceRet, Instruction.Create(OpCodes.Leave, last));
 					}
 				}
 			}
 
-			InsertEndfinally(Instruction.Create(OpCodes.Constrained, m_Method.ReturnType));
-			var disposeMethod = callerType.Module.ImportReference(typeof(System.IDisposable).GetMethod("Dispose"));
-			InsertEndfinally(Instruction.Create(OpCodes.Callvirt, disposeMethod));
-			InsertEndfinally(Instruction.Create(OpCodes.Nop));
-			InsertEndfinally(Instruction.Create(OpCodes.Endfinally));
-
-			if (notRetEnd)
+			foreach (var handler in processor.Body.ExceptionHandlers)
 			{
-				end = processor.Body.Instructions.Last().Next;
+				if (handler.HandlerEnd == null || handler.HandlerEnd == end)
+				{
+					handler.HandlerEnd = finallyInstructions[0];
+				}
 			}
 
-			processor.Body.ExceptionHandlers.Insert(0, new ExceptionHandler(ExceptionHandlerType.Finally)
+			processor.Body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Finally)
 			{
-				TryStart = tryStart,
-				TryEnd = handlerStart,
-				HandlerStart = handlerStart,
-				HandlerEnd = end,
+				TryStart = tryStartPrev.Next,
+				TryEnd = finallyInstructions[0],
+				HandlerStart = finallyInstructions[0],
+				HandlerEnd = finallyInstructions.Last(x => x.OpCode == OpCodes.Endfinally).Next,
 			});
 
-
-
+			processor.Body.OptimizeMacros();
 		}
 
+		Instruction[] GetScopeFinallyInstruction(TypeDefinition callerType, VariableDefinition variable, bool ret, VariableDefinition variableDefinition)
+		{
+			var finallyInstruction = new List<Instruction>();
+			var endFinally = Instruction.Create(OpCodes.Endfinally);
+			if (!m_Method.ReturnType.IsValueType)
+			{
+				finallyInstruction.Add(Instruction.Create(OpCodes.Ldloc, variable));
+				finallyInstruction.Add(Instruction.Create(OpCodes.Brfalse_S, endFinally));
+				finallyInstruction.Add(Instruction.Create(OpCodes.Ldloc, variable));
+				var disposeMethod = callerType.Module.ImportReference(typeof(System.IDisposable).GetMethod("Dispose"));
+				finallyInstruction.Add(Instruction.Create(OpCodes.Callvirt, disposeMethod));
+				finallyInstruction.Add(endFinally);
+			}
+			else
+			{
+				finallyInstruction.Add(Instruction.Create(OpCodes.Ldloca, variable));
+				finallyInstruction.Add(Instruction.Create(OpCodes.Constrained, callerType.Module.ImportReference(m_Method.ReturnType)));
+				var disposeMethod = callerType.Module.ImportReference(typeof(System.IDisposable).GetMethod("Dispose"));
+				finallyInstruction.Add(Instruction.Create(OpCodes.Callvirt, disposeMethod));
+				finallyInstruction.Add(endFinally);
+			}
+			if (variableDefinition != null)
+			{
+				finallyInstruction.Add(Instruction.Create(OpCodes.Ldloc, variableDefinition));
+			}
+			if (ret)
+			{
+				finallyInstruction.Add(Instruction.Create(OpCodes.Ret));
+			}
+			return finallyInstruction.ToArray();
+		}
 
 	}
 

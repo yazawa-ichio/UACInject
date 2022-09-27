@@ -34,26 +34,28 @@ namespace UACInject.CodeGen
 				return null;
 			}
 			m_Diagnostics.Clear();
-
-			var assemblyDefinition = AssemblyDefinitionFor(compiledAssembly);
-			if (assemblyDefinition == null)
-			{
-				return null;
-			}
-
-			var mainModule = assemblyDefinition.MainModule;
-			if (mainModule == null)
-			{
-				return null;
-			}
 			var logger = new Logger(m_Diagnostics);
+			AssemblyDefinition assemblyDefinition = null;
 			try
 			{
+
+				assemblyDefinition = AssemblyDefinitionFor(compiledAssembly);
+				if (assemblyDefinition == null)
+				{
+					return null;
+				}
+
+				var mainModule = assemblyDefinition.MainModule;
+				if (mainModule == null)
+				{
+					return null;
+				}
 				new InjectProcess(logger).Run(mainModule);
 			}
 			catch (Exception error)
 			{
 				logger.Exception(error);
+				throw;
 			}
 
 			var pe = new MemoryStream();
@@ -65,8 +67,14 @@ namespace UACInject.CodeGen
 				SymbolStream = pdb,
 				WriteSymbols = true
 			};
-
-			assemblyDefinition.Write(pe, writerParameters);
+			try
+			{
+				assemblyDefinition.Write(pe, writerParameters);
+			}
+			catch (Exception error)
+			{
+				logger.Exception(error);
+			}
 
 			return new ILPostProcessResult(new InMemoryAssembly(pe.ToArray(), pdb.ToArray()), m_Diagnostics);
 		}

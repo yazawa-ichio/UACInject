@@ -18,7 +18,7 @@ namespace UACInject.CodeGen
 		{
 			if (!m_Dic.TryGetValue(attribute.AttributeType.FullName, out var entry))
 			{
-				m_Dic[attribute.AttributeType.FullName] = entry = Create(attribute);
+				m_Dic[attribute.AttributeType.FullName] = entry = Create(callerType, attribute);
 			}
 			foreach (var info in entry)
 			{
@@ -30,9 +30,9 @@ namespace UACInject.CodeGen
 			return false;
 		}
 
-		List<InjectMethod> Create(CodeInjectAttributeInfo attrInfo)
+		List<InjectMethod> Create(TypeDefinition callerType, CodeInjectAttributeInfo attrInfo)
 		{
-			var type = attrInfo.AttributeType.Resolve();
+			var type = callerType.Module.ImportReference(attrInfo.AttributeType.Resolve()).Resolve();
 			List<InjectMethod> infos = new List<InjectMethod>();
 			foreach (var method in type.Methods)
 			{
@@ -44,7 +44,7 @@ namespace UACInject.CodeGen
 					continue;
 				}
 				m_Logger.Debug($"add InjectMethod {type.FullName}:{method.Name}");
-				infos.Add(new InjectMethod(m_Logger, attrInfo.CodeType, method));
+				infos.Add(new InjectMethod(m_Logger, attrInfo.CodeType, callerType.Module.ImportReference(method).Resolve()));
 			}
 			infos.Sort((x, y) => y.Priority - x.Priority);
 			//infos.Sort((x, y) => x.Priority - y.Priority);

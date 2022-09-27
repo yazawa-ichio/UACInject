@@ -228,6 +228,7 @@ namespace UACInject.CodeGen
 		public IEnumerable<Instruction> SetCallerFieldInstruction(TypeDefinition callerType)
 		{
 			var field = callerType.Fields.First(x => x.Name == Name);
+			field = callerType.Module.ImportReference(field).Resolve();
 			yield return Instruction.Create(OpCodes.Ldarg_0);
 			if (ParameterType.IsByReference)
 			{
