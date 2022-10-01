@@ -23,6 +23,9 @@ namespace UACInject
 	}
 
 	[AttributeUsage(AttributeTargets.Method)]
-	public sealed class CodeTargetAttribute : Attribute { }
+	public sealed class CodeTargetAttribute : Attribute
+	{
+		public int Priority { get; set; }
+	}
 
 }

@@ -14,12 +14,16 @@ namespace UACInject.CodeGen
 		MethodDefinition m_Method;
 		ArgumentInfo[] m_ArgumentInfos;
 		CodeType m_CodeType;
+		CodeTargetAttributeInfo m_TargetAttributeInfo;
 
-		public int Priority => m_ArgumentInfos.Length;
+		public int Priority => m_TargetAttributeInfo.Priority;
 
-		public InjectMethod(Logger logger, CodeType codeType, MethodDefinition method)
+		public int ArgumentPriority => m_ArgumentInfos.Length;
+
+		public InjectMethod(Logger logger, CodeTargetAttributeInfo targetAttributeInfo, CodeType codeType, MethodDefinition method)
 		{
 			m_Logger = logger;
+			m_TargetAttributeInfo = targetAttributeInfo;
 			m_CodeType = codeType;
 			m_Method = method;
 			m_ArgumentInfos = method.Parameters.Select(x => new ArgumentInfo(logger, x)).ToArray();

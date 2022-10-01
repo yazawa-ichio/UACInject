@@ -43,11 +43,18 @@ namespace UACInject.CodeGen
 				{
 					continue;
 				}
-				m_Logger.Debug($"add InjectMethod {type.FullName}:{method.Name}");
-				infos.Add(new InjectMethod(m_Logger, attrInfo.CodeType, callerType.Module.ImportReference(method).Resolve()));
+				var target = new CodeTargetAttributeInfo(attr);
+				m_Logger.Debug($"add InjectMethod {type.FullName}:{method.Name} Priority:{target.Priority}");
+				infos.Add(new InjectMethod(m_Logger, target, attrInfo.CodeType, callerType.Module.ImportReference(method).Resolve()));
 			}
-			infos.Sort((x, y) => y.Priority - x.Priority);
-			//infos.Sort((x, y) => x.Priority - y.Priority);
+			infos.Sort((x, y) =>
+			{
+				if (y.Priority != x.Priority)
+				{
+					return y.Priority - x.Priority;
+				}
+				return y.ArgumentPriority - x.ArgumentPriority;
+			});
 			return infos;
 		}
 	}
