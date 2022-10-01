@@ -69,13 +69,13 @@ namespace UACInject.CodeGen
 			switch (m_CodeType)
 			{
 				case CodeType.Execute:
-					InjectExecute(callerType, callerMethod);
+					InjectExecute(callerType, callerMethod, attr);
 					break;
 				case CodeType.ReturnCondition:
-					InjectReturnCondition(callerType, callerMethod);
+					InjectReturnCondition(callerType, callerMethod, attr);
 					break;
 				case CodeType.Scope:
-					InjectScope(callerType, callerMethod);
+					InjectScope(callerType, callerMethod, attr);
 					break;
 			}
 			return true;
@@ -95,7 +95,7 @@ namespace UACInject.CodeGen
 
 			foreach (var arg in m_ArgumentInfos)
 			{
-				if (!arg.Match(callerType, callerMethod))
+				if (!arg.Match(callerType, callerMethod, attr))
 				{
 					return false;
 				}
@@ -113,14 +113,14 @@ namespace UACInject.CodeGen
 			return true;
 		}
 
-		void InjectExecute(TypeDefinition callerType, MethodDefinition callerMethod)
+		void InjectExecute(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{
 			Instruction target = callerMethod.Body.Instructions.First();
 			var processor = callerMethod.Body.GetILProcessor();
 
 			foreach (var arg in m_ArgumentInfos)
 			{
-				foreach (var item in arg.CreateInstruction(callerType, callerMethod))
+				foreach (var item in arg.CreateInstruction(callerType, callerMethod, attr))
 				{
 					processor.InsertBefore(target, item);
 				}
@@ -135,7 +135,7 @@ namespace UACInject.CodeGen
 
 		}
 
-		void InjectReturnCondition(TypeDefinition callerType, MethodDefinition callerMethod)
+		void InjectReturnCondition(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{
 			var processor = callerMethod.Body.GetILProcessor();
 			processor.Body.SimplifyMacros();
@@ -144,7 +144,7 @@ namespace UACInject.CodeGen
 
 			foreach (var arg in m_ArgumentInfos)
 			{
-				foreach (var item in arg.CreateInstruction(callerType, callerMethod))
+				foreach (var item in arg.CreateInstruction(callerType, callerMethod, attr))
 				{
 					processor.InsertBefore(target, item);
 				}
@@ -174,7 +174,7 @@ namespace UACInject.CodeGen
 
 		}
 
-		void InjectScope(TypeDefinition callerType, MethodDefinition callerMethod)
+		void InjectScope(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{
 
 			var processor = callerMethod.Body.GetILProcessor();
@@ -188,7 +188,7 @@ namespace UACInject.CodeGen
 
 			foreach (var arg in m_ArgumentInfos)
 			{
-				foreach (var item in arg.CreateInstruction(callerType, callerMethod))
+				foreach (var item in arg.CreateInstruction(callerType, callerMethod, attr))
 				{
 					processor.InsertBefore(tryStart, item);
 				}

@@ -1,4 +1,5 @@
 ﻿using Mono.Cecil;
+using System.Linq;
 
 namespace UACInject.CodeGen
 {
@@ -28,9 +29,12 @@ namespace UACInject.CodeGen
 
 		public string Method { get; set; } = "";
 
+		public ConstructorParameterAttributeInfo[] Parameters { get; private set; }
+
 		public CodeInjectAttributeInfo(CustomAttribute attr)
 		{
 			AttributeType = attr.AttributeType;
+			Parameters = ConstructorParameterAttributeInfo.Get(attr).ToArray();
 
 			if (attr.AttributeType.CanToCast(s_ExecuteMethodFullName))
 			{

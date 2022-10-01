@@ -11,6 +11,10 @@ namespace UACInjectTests
 		{
 			public static string LastRun { get; [PropertyLog] set; }
 
+			public TestExecute1Attribute() { }
+
+			public TestExecute1Attribute([ConstructorParameter("arg1")] int arg1) { }
+
 			[CodeTarget]
 			static void Run(int arg1)
 			{
@@ -45,6 +49,55 @@ namespace UACInjectTests
 			public static void RunLong(int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17)
 			{
 				LastRun = $"Run(int {arg1}, int {arg2},*, int {arg16}, int {arg17})";
+			}
+
+		}
+
+		class TestExecute2Attribute : ExecuteCodeAttribute
+		{
+			public static object LastValue;
+
+			public TestExecute2Attribute([ConstructorParameter("b")] bool valueB) { }
+			public TestExecute2Attribute([ConstructorParameter] byte valueB) { }
+			public TestExecute2Attribute([ConstructorParameter] short valueS) { }
+			public TestExecute2Attribute([ConstructorParameter] long valueL) { }
+			public TestExecute2Attribute([ConstructorParameter] ulong valueUL) { }
+			public TestExecute2Attribute([ConstructorParameter] string valueS) { }
+
+			[CodeTarget]
+			static void Run(bool b)
+			{
+				LastValue = b;
+			}
+
+			[CodeTarget]
+			static void Run(byte valueB)
+			{
+				LastValue = valueB;
+			}
+
+			[CodeTarget]
+			static void Run(short valueS)
+			{
+				LastValue = valueS;
+			}
+
+			[CodeTarget]
+			static void Run(long valueL)
+			{
+				LastValue = valueL;
+			}
+
+			[CodeTarget]
+			static void Run(ulong valueUL)
+			{
+				LastValue = valueUL;
+			}
+
+			[CodeTarget]
+			static void Run(string valueS)
+			{
+				LastValue = valueS;
 			}
 
 		}
@@ -91,8 +144,7 @@ namespace UACInjectTests
 		}
 
 
-		[TestExecute1]
-		[ArgumentValue("arg1", 10)]
+		[TestExecute1(arg1: 10)]
 		void RunCode2IF_FixedArg(float arg2)
 		{
 			Assert.AreEqual(TestExecute1Attribute.LastRun, $"Run(int {10}, float {arg2})");
@@ -175,6 +227,46 @@ namespace UACInjectTests
 			RunCodeLong(102, 5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, -15, -17);
 		}
 
+
+		[TestExecute2(true)]
+		void ConstructorParameterBool() { }
+
+		[TestExecute2(1)]
+		void ConstructorParameterByte() { }
+
+		[TestExecute2(1002)]
+		void ConstructorParameterShort() { }
+
+		[TestExecute2(long.MaxValue - 1)]
+		void ConstructorParameterLong() { }
+
+		[TestExecute2(ulong.MaxValue - 1)]
+		void ConstructorParameterULong() { }
+
+		[TestExecute2("TEST")]
+		void ConstructorParameterString() { }
+
+		[Test]
+		public void TestConstructorParameter()
+		{
+			ConstructorParameterBool();
+			Assert.AreEqual(true, TestExecute2Attribute.LastValue);
+
+			ConstructorParameterByte();
+			Assert.AreEqual(1, TestExecute2Attribute.LastValue);
+
+			ConstructorParameterShort();
+			Assert.AreEqual(1002, TestExecute2Attribute.LastValue);
+
+			ConstructorParameterLong();
+			Assert.AreEqual(long.MaxValue - 1, TestExecute2Attribute.LastValue);
+
+			ConstructorParameterULong();
+			Assert.AreEqual(ulong.MaxValue - 1, TestExecute2Attribute.LastValue);
+
+			ConstructorParameterString();
+			Assert.AreEqual("TEST", TestExecute2Attribute.LastValue);
+		}
 	}
 
 }

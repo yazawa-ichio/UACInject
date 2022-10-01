@@ -20,7 +20,6 @@ namespace UACInject.CodeGen
 		static readonly string s_CallerField = "UACInject.CallerFieldAttribute";
 		static readonly string s_CallerInstance = "UACInject.CallerInstanceAttribute";
 		static readonly string s_CallerMethodName = "UACInject.CallerMethodNameAttribute";
-		static readonly string s_ArgumentValueAttribute = "UACInject.ArgumentValueAttribute";
 
 		public TypeReference ParameterType { get; private set; }
 
@@ -65,7 +64,7 @@ namespace UACInject.CodeGen
 			return attribute != null;
 		}
 
-		public bool Match(TypeDefinition callerType, MethodDefinition callerMethod)
+		public bool Match(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo injectAttribute)
 		{
 			m_Logger.Debug($"Match {Name} {Type}");
 			switch (Type)
@@ -92,36 +91,45 @@ namespace UACInject.CodeGen
 						return false;
 					}
 				case ArgumentType.CallerArgument:
-				case ArgumentType.Default:
-				default:
 					{
 						var param = callerMethod.Parameters.FirstOrDefault(x => x.Name == Name);
 						if (param != null && param.ParameterType.CanToCast(ParameterType.FullName))
 						{
 							return true;
 						}
-						foreach (var attr in callerMethod.CustomAttributes.Where(x => x.AttributeType.CanToCast(s_ArgumentValueAttribute)))
+						return false;
+					}
+				case ArgumentType.Default:
+				default:
+					{
+						foreach (var attrParam in injectAttribute.Parameters)
 						{
-							var name = attr.ConstructorArguments[0].Value.ToString();
-							var value = attr.ConstructorArguments[1].Value;
+							var name = attrParam.Name;
+							var value = attrParam.Value;
 							m_Logger.Debug($"attr {ParameterType.FullName} {value.GetType().FullName}");
 							if (name == Name && ParameterType.CanToCast(value.GetType().FullName))
 							{
 								return true;
 							}
 						}
+						var param = callerMethod.Parameters.FirstOrDefault(x => x.Name == Name);
+						if (param != null && param.ParameterType.CanToCast(ParameterType.FullName))
+						{
+							return true;
+						}
 						return false;
 					}
 			}
 		}
 
-		public IEnumerable<Instruction> CreateInstruction(TypeDefinition callerType, MethodDefinition callerMethod)
+		public IEnumerable<Instruction> CreateInstruction(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo injectAttribute)
 		{
 			m_Logger.Debug($"ArgumentInfo {Name}");
 			switch (Type)
 			{
-				case ArgumentType.CallerArgument:
 				case ArgumentType.Default:
+					return SetParameterInstruction(callerType, callerMethod, injectAttribute);
+				case ArgumentType.CallerArgument:
 					return SetCallerArgumentInstruction(callerType, callerMethod);
 				case ArgumentType.CallerField:
 					return SetCallerFieldInstruction(callerType);
@@ -131,6 +139,84 @@ namespace UACInject.CodeGen
 					return SetCallerMethodNameInstruction(callerMethod);
 			}
 			return Enumerable.Empty<Instruction>();
+		}
+
+		public IEnumerable<Instruction> SetParameterInstruction(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo injectAttribute)
+		{
+
+			foreach (var attrParam in injectAttribute.Parameters)
+			{
+				var name = attrParam.Name;
+				var value = attrParam.Value;
+				m_Logger.Debug($"attrParam {ParameterType.FullName} {value.GetType().FullName}");
+				if (name == Name && ParameterType.CanToCast(value.GetType().FullName))
+				{
+					if (value is int)
+					{
+						yield return SetIntValue((int)value);
+						break;
+					}
+					else if (value is float)
+					{
+						yield return Instruction.Create(OpCodes.Ldc_R4, (float)value);
+						break;
+					}
+					else if (value is long)
+					{
+						yield return Instruction.Create(OpCodes.Ldc_I8, (long)value);
+						break;
+					}
+					else if (value is ulong)
+					{
+						yield return Instruction.Create(OpCodes.Ldc_I8, (long)(ulong)value);
+						break;
+					}
+					else if (value is double)
+					{
+						yield return Instruction.Create(OpCodes.Ldc_R8, (double)value);
+						break;
+					}
+					else if (value is string)
+					{
+						yield return Instruction.Create(OpCodes.Ldstr, (string)value);
+						break;
+					}
+					else if (value.GetType().IsValueType && value is System.IConvertible convertible)
+					{
+						yield return SetIntValue(convertible.ToInt32(null));
+						break;
+					}
+				}
+			}
+
+			for (int i = 0; i < callerMethod.Parameters.Count; i++)
+			{
+				var parameter = callerMethod.Parameters[i];
+				if (parameter.Name == Name)
+				{
+					if (callerMethod.IsSetter)
+					{
+						yield return Instruction.Create(OpCodes.Ldarg_0);
+						yield break;
+					}
+					switch (i)
+					{
+						case 0:
+							yield return Instruction.Create(OpCodes.Ldarg_1);
+							break;
+						case 1:
+							yield return Instruction.Create(OpCodes.Ldarg_2);
+							break;
+						case 2:
+							yield return Instruction.Create(OpCodes.Ldarg_3);
+							break;
+						default:
+							yield return Instruction.Create(OpCodes.Ldarg_S, parameter);
+							break;
+					}
+					yield break;
+				}
+			}
 		}
 
 		public IEnumerable<Instruction> SetCallerArgumentInstruction(TypeDefinition callerType, MethodDefinition callerMethod)
@@ -161,30 +247,6 @@ namespace UACInject.CodeGen
 							break;
 					}
 					yield break;
-				}
-			}
-			foreach (var attr in callerMethod.CustomAttributes.Where(x => x.AttributeType.CanToCast(s_ArgumentValueAttribute)))
-			{
-				var name = attr.ConstructorArguments[0].Value.ToString();
-				var value = attr.ConstructorArguments[1].Value;
-				m_Logger.Debug($"attr {ParameterType.FullName} {value.GetType().FullName}");
-				if (name == Name && ParameterType.CanToCast(value.GetType().FullName))
-				{
-					if (value is int)
-					{
-						yield return SetIntValue((int)value);
-						break;
-					}
-					else if (value is float)
-					{
-						yield return Instruction.Create(OpCodes.Ldc_R4, (float)value);
-						break;
-					}
-					else if (value is string)
-					{
-						yield return Instruction.Create(OpCodes.Ldstr, (string)value);
-						break;
-					}
 				}
 			}
 		}
