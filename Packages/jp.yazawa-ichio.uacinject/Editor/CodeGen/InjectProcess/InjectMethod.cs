@@ -20,6 +20,10 @@ namespace UACInject.CodeGen
 
 		public int ArgumentPriority => m_ArgumentInfos.Length;
 
+		public bool HasResult => m_ArgumentInfos.Any(x => x.IsResult);
+
+		public TypeReference ResultParameterType => m_ArgumentInfos.First(x => x.IsResult).ParameterType;
+
 		public InjectMethod(Logger logger, CodeTargetAttributeInfo targetAttributeInfo, CodeType codeType, MethodDefinition method)
 		{
 			m_Logger = logger;
@@ -36,6 +40,10 @@ namespace UACInject.CodeGen
 			if (!method.IsPublic)
 			{
 				method.IsPublic = true;
+			}
+			if (m_ArgumentInfos.Count(x => x.IsResult) > 1)
+			{
+				logger.Error($"[ResultAttribute] is once only. {method.FullName}");
 			}
 			switch (m_CodeType)
 			{
@@ -105,22 +113,14 @@ namespace UACInject.CodeGen
 				}
 			}
 
-			if (m_CodeType == CodeType.ReturnCondition)
-			{
-				if (!callerMethod.ReturnType.IsVoid() && !callerMethod.ReturnType.CanToCast("System.Threading.Tasks.Task"))
-				{
-					m_Logger.Warning($"ReturnCondition is void only. {callerMethod.FullName}");
-					return false;
-				}
-			}
-
 			return true;
 		}
 
 		void InjectExecute(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{
-			Instruction target = callerMethod.Body.Instructions.First();
 			var processor = callerMethod.Body.GetILProcessor();
+			processor.Body.SimplifyMacros();
+			Instruction target = callerMethod.Body.Instructions.First();
 
 			foreach (var arg in m_ArgumentInfos)
 			{
@@ -136,21 +136,41 @@ namespace UACInject.CodeGen
 			{
 				processor.InsertBefore(target, Instruction.Create(OpCodes.Pop));
 			}
-
+			processor.Body.OptimizeMacros();
 		}
 
 		void InjectReturnCondition(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{
+			m_Logger.Debug($"callerMethod:{callerMethod}");
+			m_Logger.Debug($"callerMethod.ReturnType:{callerMethod.ReturnType.Resolve()}");
+			m_Logger.Debug($"callerMethod.DeclaringType:{callerMethod.ReturnType.Resolve().BaseType}");
+			if (callerMethod.Body == null)
+			{
+				callerMethod.Body = new MethodBody(callerMethod);
+			}
 			var processor = callerMethod.Body.GetILProcessor();
 			processor.Body.SimplifyMacros();
 
-			Instruction target = callerMethod.Body.Instructions.First();
+			Instruction target = callerMethod.Body.Instructions.FirstOrDefault();
+
+			VariableDefinition result = null;
 
 			foreach (var arg in m_ArgumentInfos)
 			{
-				foreach (var item in arg.CreateInstruction(callerType, callerMethod, attr))
+				if (arg.IsResult)
 				{
-					processor.InsertBefore(target, item);
+					callerMethod.Body.Variables.Add(result = new VariableDefinition(arg.ParameterType.Resolve()));
+					foreach (var item in arg.SetReturnConditionResultInstruction(callerType, callerMethod, attr, result))
+					{
+						processor.InsertBefore(target, item);
+					}
+				}
+				else
+				{
+					foreach (var item in arg.CreateInstruction(callerType, callerMethod, attr))
+					{
+						processor.InsertBefore(target, item);
+					}
 				}
 			}
 
@@ -170,13 +190,86 @@ namespace UACInject.CodeGen
 			if (!callerMethod.ReturnType.IsVoid())
 			{
 				var type = callerMethod.Module.ImportReference(callerMethod.ReturnType.Resolve()).Resolve();
-				var method = callerMethod.Module.ImportReference(type.Methods.FirstOrDefault(x => x.Name == "get_CompletedTask"));
-				processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, method));
+				if (result != null && result.VariableType.CanToCast(callerMethod.ReturnType.FullName))
+				{
+					processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldloc, result));
+				}
+				else if (callerMethod.ReturnType.FullName == "System.Threading.Tasks.Task")
+				{
+					var method = callerMethod.Module.ImportReference(type.Methods.First(x => x.Name == "get_CompletedTask"));
+					processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, method));
+				}
+				else if (callerMethod.ReturnType.FullName == "Cysharp.Threading.Tasks.UniTask")
+				{
+					var method = callerMethod.Module.ImportReference(type.Fields.First(x => x.Name == "CompletedTask"));
+					processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldsfld, method));
+				}
+				else if (callerMethod.ReturnType.FullName == "System.Threading.Tasks.ValueTask")
+				{
+					var taskType = callerMethod.Module.ImportReference(typeof(System.Threading.Tasks.Task)).Resolve();
+					var method = callerMethod.Module.ImportReference(taskType.Methods.First(x => x.Name == "get_CompletedTask"));
+					processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, method));
+					var constructor = callerMethod.ReturnType.Resolve().GetConstructors().First(x => x.Parameters.Count == 1);
+					processor.InsertBefore(ret, Instruction.Create(OpCodes.Newobj, callerMethod.Module.ImportReference(constructor)));
+				}
+				else
+				{
+					var resolveType = callerMethod.ReturnType.Resolve();
+					if (resolveType.FullName == "System.Threading.Tasks.Task`1")
+					{
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldloc, result));
+						var baseType = callerMethod.Module.ImportReference(resolveType.BaseType).Resolve();
+						var method = new GenericInstanceMethod(callerMethod.Module.ImportReference(baseType.Methods.First(x => x.Name == "FromResult")));
+						method.GenericArguments.Add(result.VariableType);
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, callerMethod.Module.ImportReference(method)));
+					}
+					else if (resolveType.FullName == "Cysharp.Threading.Tasks.UniTask`1")
+					{
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldloc, result));
+						var uniTaskType = resolveType.Module.GetType("Cysharp.Threading.Tasks.UniTask");
+						var baseType = callerMethod.Module.ImportReference(uniTaskType).Resolve();
+						var method = new GenericInstanceMethod(callerMethod.Module.ImportReference(baseType.Methods.First(x => x.Name == "FromResult")));
+						method.GenericArguments.Add(result.VariableType);
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Call, callerMethod.Module.ImportReference(method)));
+					}
+					else if (resolveType.FullName == "System.Threading.Tasks.ValueTask`1")
+					{
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Ldloc, result));
+						var valueType = new GenericInstanceType(resolveType)
+						{
+							GenericArguments = { result.VariableType },
+						};
+						var methodBase = valueType.Resolve().GetConstructors().First(x => x.Parameters.Count == 1 && x.Parameters[0].ParameterType.FullName == "TResult");
+						var method = callerMethod.Module.ImportReference(MakeHostInstanceGeneric(methodBase, result.VariableType));
+						processor.InsertBefore(ret, Instruction.Create(OpCodes.Newobj, method));
+					}
+				}
 			}
 
 			processor.Body.OptimizeMacros();
 
 		}
+
+		MethodReference MakeHostInstanceGeneric(MethodReference self, TypeReference arg)
+		{
+			var declaringType = new GenericInstanceType(self.DeclaringType) { GenericArguments = { arg } };
+			var reference = new MethodReference(self.Name, self.ReturnType, declaringType)
+			{
+				HasThis = self.HasThis,
+				ExplicitThis = self.ExplicitThis,
+				CallingConvention = self.CallingConvention
+			};
+			foreach (var parameter in self.Parameters)
+			{
+				reference.Parameters.Add(new ParameterDefinition(parameter.ParameterType));
+			}
+			foreach (var genericParam in self.GenericParameters)
+			{
+				reference.GenericParameters.Add(new GenericParameter(genericParam.Name, reference));
+			}
+			return reference;
+		}
+
 
 		void InjectScope(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo attr)
 		{

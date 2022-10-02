@@ -19,6 +19,9 @@ namespace UACInject
 	[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
 	public abstract class ReturnConditionCodeAttribute : Attribute, ICodeInjectAttribute
 	{
+		[AttributeUsage(AttributeTargets.Parameter)]
+		public class ResultAttribute : Attribute { }
+
 		public string Method { get; set; }
 	}
 

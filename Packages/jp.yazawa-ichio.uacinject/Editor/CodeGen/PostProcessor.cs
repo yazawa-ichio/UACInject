@@ -55,7 +55,6 @@ namespace UACInject.CodeGen
 			catch (Exception error)
 			{
 				logger.Exception(error);
-				throw;
 			}
 
 			var pe = new MemoryStream();

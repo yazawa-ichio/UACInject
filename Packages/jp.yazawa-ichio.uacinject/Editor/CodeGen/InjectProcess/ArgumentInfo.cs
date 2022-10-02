@@ -14,18 +14,22 @@ namespace UACInject.CodeGen
 			CallerField,
 			CallerMethodName,
 			CallerInstance,
+			ReturnConditionResult,
 		}
 
 		static readonly string s_CallerArgument = "UACInject.CallerArgumentAttribute";
 		static readonly string s_CallerField = "UACInject.CallerFieldAttribute";
 		static readonly string s_CallerInstance = "UACInject.CallerInstanceAttribute";
 		static readonly string s_CallerMethodName = "UACInject.CallerMethodNameAttribute";
+		static readonly string s_ResultAttribute = "UACInject.ReturnConditionCodeAttribute/ResultAttribute";
 
 		public TypeReference ParameterType { get; private set; }
 
 		public string Name { get; private set; }
 
 		public ArgumentType Type { get; private set; } = ArgumentType.Default;
+
+		public bool IsResult => Type == ArgumentType.ReturnConditionResult;
 
 		Logger m_Logger;
 
@@ -34,7 +38,16 @@ namespace UACInject.CodeGen
 			m_Logger = logger;
 			ParameterType = parameter.ParameterType;
 			Name = parameter.Name;
-			if (TryGetAttribute(parameter, s_CallerArgument, out var attr))
+
+			if (TryGetAttribute(parameter, s_ResultAttribute, out var _))
+			{
+				Type = ArgumentType.ReturnConditionResult;
+				if (!parameter.IsOut)
+				{
+					m_Logger.Error("ReturnCondition Result is out only.");
+				}
+			}
+			else if (TryGetAttribute(parameter, s_CallerArgument, out var attr))
 			{
 				Type = ArgumentType.CallerArgument;
 				Name = attr.ConstructorArguments[0].Value.ToString();
@@ -69,6 +82,8 @@ namespace UACInject.CodeGen
 			m_Logger.Debug($"Match {Name} {Type}");
 			switch (Type)
 			{
+				case ArgumentType.ReturnConditionResult:
+					return true;
 				case ArgumentType.CallerField:
 					{
 						var field = callerType.Fields.FirstOrDefault(x => x.Name == Name);
@@ -153,7 +168,7 @@ namespace UACInject.CodeGen
 				{
 					if (value is int)
 					{
-						yield return SetIntValue((int)value);
+						yield return Instruction.Create(OpCodes.Ldc_I4, (int)value);
 						break;
 					}
 					else if (value is float)
@@ -183,7 +198,7 @@ namespace UACInject.CodeGen
 					}
 					else if (value.GetType().IsValueType && value is System.IConvertible convertible)
 					{
-						yield return SetIntValue(convertible.ToInt32(null));
+						yield return Instruction.Create(OpCodes.Ldc_I4, convertible.ToInt32(null));
 						break;
 					}
 				}
@@ -194,27 +209,7 @@ namespace UACInject.CodeGen
 				var parameter = callerMethod.Parameters[i];
 				if (parameter.Name == Name)
 				{
-					if (callerMethod.IsSetter)
-					{
-						yield return Instruction.Create(OpCodes.Ldarg_0);
-						yield break;
-					}
-					switch (i)
-					{
-						case 0:
-							yield return Instruction.Create(OpCodes.Ldarg_1);
-							break;
-						case 1:
-							yield return Instruction.Create(OpCodes.Ldarg_2);
-							break;
-						case 2:
-							yield return Instruction.Create(OpCodes.Ldarg_3);
-							break;
-						default:
-							yield return Instruction.Create(OpCodes.Ldarg_S, parameter);
-							break;
-					}
-					yield break;
+					yield return Instruction.Create(OpCodes.Ldarg, parameter);
 				}
 			}
 		}
@@ -251,42 +246,6 @@ namespace UACInject.CodeGen
 			}
 		}
 
-		Instruction SetIntValue(int value)
-		{
-			switch (value)
-			{
-				case -1:
-					return Instruction.Create(OpCodes.Ldc_I4_M1);
-				case 0:
-					return Instruction.Create(OpCodes.Ldc_I4_0);
-				case 1:
-					return Instruction.Create(OpCodes.Ldc_I4_1);
-				case 2:
-					return Instruction.Create(OpCodes.Ldc_I4_2);
-				case 3:
-					return Instruction.Create(OpCodes.Ldc_I4_3);
-				case 4:
-					return Instruction.Create(OpCodes.Ldc_I4_4);
-				case 5:
-					return Instruction.Create(OpCodes.Ldc_I4_5);
-				case 6:
-					return Instruction.Create(OpCodes.Ldc_I4_6);
-				case 7:
-					return Instruction.Create(OpCodes.Ldc_I4_7);
-				case 8:
-					return Instruction.Create(OpCodes.Ldc_I4_8);
-				default:
-					if (value >= -128 && value < 128)
-					{
-						return Instruction.Create(OpCodes.Ldc_I4_S, (sbyte)value);
-					}
-					else
-					{
-						return Instruction.Create(OpCodes.Ldc_I4, value);
-					}
-			}
-		}
-
 		public IEnumerable<Instruction> SetCallerFieldInstruction(TypeDefinition callerType)
 		{
 			var field = callerType.Fields.First(x => x.Name == Name);
@@ -312,6 +271,11 @@ namespace UACInject.CodeGen
 			yield return Instruction.Create(OpCodes.Ldstr, callerMethod.Name);
 		}
 
+		public IEnumerable<Instruction> SetReturnConditionResultInstruction(TypeDefinition callerType, MethodDefinition callerMethod, CodeInjectAttributeInfo injectAttribute, VariableDefinition result)
+		{
+			yield return Instruction.Create(OpCodes.Ldloca, result);
+
+		}
 
 	}
 
