@@ -226,6 +226,15 @@ namespace UACInjectTests
 			throw new System.Exception("Error");
 		}
 
+		int Error4Mock_(int count)
+		{
+			if (count == 0)
+			{
+				return 5;
+			}
+			throw new System.Exception("Error");
+		}
+
 		int Error4Mock(int count)
 		{
 			using (ClassScopeAttribute.Run(count))
@@ -513,6 +522,47 @@ namespace UACInjectTests
 
 		[StructScope]
 		long Get2(int num, bool ret)
+		{
+			if (ret)
+			{
+				if (num > 10)
+				{
+					if (num % 2 == 0)
+					{
+						return num + 1;
+					}
+				}
+				else
+				{
+					return num * 2;
+				}
+			}
+			return -5555;
+		}
+
+		long Get2Mock(int num, bool ret)
+		{
+			using (StructScopeAttribute.Run())
+			{
+				if (ret)
+				{
+					if (num > 10)
+					{
+						if (num % 2 == 0)
+						{
+							return num + 1;
+						}
+					}
+					else
+					{
+						return num * 2;
+					}
+				}
+				return -5555;
+			}
+		}
+
+		long Get2Mock_(int num, bool ret)
 		{
 			if (ret)
 			{

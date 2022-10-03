@@ -303,8 +303,15 @@ namespace UACInject.CodeGen
 			if (ret != null && !callerMethod.ReturnType.IsVoid())
 			{
 				end = end.Previous;
-				retVariable = new VariableDefinition(callerType.Module.ImportReference(callerMethod.ReturnType));
-				callerMethod.Body.Variables.Add(retVariable);
+				if (end.OpCode == OpCodes.Ldloc)
+				{
+					holdLastRet = true;
+				}
+				else
+				{
+					retVariable = new VariableDefinition(callerType.Module.ImportReference(callerMethod.ReturnType));
+					callerMethod.Body.Variables.Add(retVariable);
+				}
 			}
 
 			var finallyInstructions = GetScopeFinallyInstruction(callerType, variable, !holdLastRet && ret != null, retVariable);
@@ -340,6 +347,25 @@ namespace UACInject.CodeGen
 					}
 					else
 					{
+						processor.Replace(replaceRet, Instruction.Create(OpCodes.Leave, last));
+					}
+				}
+			}
+
+			foreach (var replaceRet in processor.Body.Instructions.Where(x => x.OpCode == OpCodes.Br).ToArray())
+			{
+				if (holdLastRet)
+				{
+					if (replaceRet.Operand == end)
+					{
+						processor.Replace(replaceRet, Instruction.Create(OpCodes.Leave, end));
+					}
+				}
+				else if (replaceRet.Operand is Instruction target)
+				{
+					if (target.OpCode == OpCodes.Ret || (target.OpCode != OpCodes.Ret && target.Next != null && target.Next.OpCode == OpCodes.Ret))
+					{
+						var last = finallyInstructions.Last();
 						processor.Replace(replaceRet, Instruction.Create(OpCodes.Leave, last));
 					}
 				}
