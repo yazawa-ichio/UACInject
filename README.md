@@ -1,6 +1,7 @@
 # UACInject (Unity Attribute Code Inject Package)
 
-UACInjectはデバッグ・プロファイル用のコードなどの挿入を手軽に行う事を可能にするパッケージです。  
+UACInjectはコード挿入を行うAttributeを手軽に再生するためのパッケージです。  
+デバッグ・プロファイル用のコードなどをシンボルで外す様な物を簡単に作成できます。  
 
 ## インストール
 
@@ -59,7 +60,7 @@ class DebugIgnoreAttribute : ReturnConditionCodeAttribute
 ```
 ### 挿入コードの設定
 
-定義したAttributeを関数に設定するとコードが挿入されます。
+定義したAttributeを関数に設定するとコードが挿入されます。  
 Method指定すると優先度を無視して指定のコードを挿入します。  
 
 ```cs
