@@ -221,26 +221,7 @@ namespace UACInject.CodeGen
 				var parameter = callerMethod.Parameters[i];
 				if (parameter.Name == Name)
 				{
-					if (callerMethod.IsSetter)
-					{
-						yield return Instruction.Create(OpCodes.Ldarg_0);
-						yield break;
-					}
-					switch (i)
-					{
-						case 0:
-							yield return Instruction.Create(OpCodes.Ldarg_1);
-							break;
-						case 1:
-							yield return Instruction.Create(OpCodes.Ldarg_2);
-							break;
-						case 2:
-							yield return Instruction.Create(OpCodes.Ldarg_3);
-							break;
-						default:
-							yield return Instruction.Create(OpCodes.Ldarg_S, parameter);
-							break;
-					}
+					yield return Instruction.Create(OpCodes.Ldarg, parameter);
 					yield break;
 				}
 			}
