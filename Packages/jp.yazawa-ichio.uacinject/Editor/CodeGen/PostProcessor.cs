@@ -50,6 +50,7 @@ namespace UACInject.CodeGen
 				{
 					return null;
 				}
+				new ProfileInjectProcess(logger).Run(mainModule);
 				new InjectProcess(logger).Run(mainModule);
 			}
 			catch (Exception error)
